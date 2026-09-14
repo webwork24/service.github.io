@@ -122,7 +122,7 @@ function getAttr(event) {
     ]);
 }
 
-function sendEvent(data, activityCode) {
+async function sendEvent(data, activityCode) {
 
   const urlRef = 'https://activity.worker24.click/activity/save';
   const payload = {
