@@ -1,63 +1,125 @@
+let userInfoCache = null;
+let userInfoPromise = null;
+
+async function getCachedUserInfo() {
+    if (userInfoCache) {
+        return userInfoCache;
+    }
+    if (userInfoPromise) {
+        return userInfoPromise;
+    }
+    userInfoPromise = (async () => {
+        try {
+            const ipInfo = await getIpInfo();
+            const userInfo = await getUserInfo(ipInfo);
+            userInfoCache = {
+                ip: String(userInfo?.ip ?? ''),
+                region: String(userInfo?.region ?? ''),
+                country: String(userInfo?.country ?? ''),
+                countryCode: String(userInfo?.country_code ?? ''),
+                city: String(userInfo?.city ?? ''),
+                userAgent: String(
+                    userInfo?.userAgent ?? navigator.userAgent ?? ''
+                )
+            };
+            return userInfoCache;
+        } catch (error) {
+            console.error('Failed to get user info:', error);
+            userInfoPromise = null;
+            return {
+                ip: '',
+                region: '',
+                country: '',
+                countryCode: '',
+                city: '',
+                userAgent: navigator.userAgent || ''
+            };
+        }
+    })();
+    return userInfoPromise;
+}
+
 document.addEventListener('DOMContentLoaded', async function() {
+
     const activityCode = document
-        .getElementById("activityScript")
-        .getAttribute("activity-code");
+        .getElementById('activityScript')
+        ?.getAttribute('activity-code');
 
     if (!activityCode) {
         return;
     }
 
-    const ipInfo = await getIpInfo();
-    const userInfo = await getUserInfo(ipInfo);
+    const userInfo = await getCachedUserInfo();
 
     await sendEvent({
         type: 'page_open',
-        targetBaseURI: window.location.href,
-        targetHost: window.location.host,
-        targetOrigin: window.location.origin,
+
+        targetBaseURI: String(window.location.href),
+        targetHost: String(window.location.host),
+        targetOrigin: String(window.location.origin),
 
         ip: userInfo.ip,
         region: userInfo.region,
         country: userInfo.country,
-        countryCode: userInfo.country_code,
+        countryCode: userInfo.countryCode,
+        city: userInfo.city,
+        userAgent: userInfo.userAgent
+
+    }, activityCode);
+
+});
+
+document.addEventListener('click', async function(event) {
+    const activityCode = document
+        .getElementById('activityScript')
+        ?.getAttribute('activity-code');
+
+    if (!activityCode || !needSendEvent(event)) {
+        return;
+    }
+
+    const target = event.target;
+    const userInfo = await getCachedUserInfo();
+
+    await sendEvent({
+        type: 'click',
+        targetTagName: String(target?.tagName ?? ''),
+        targetText: String(target?.textContent ?? ''),
+        targetClassName: String(
+            target?.getAttribute?.('class') ?? ''
+        ),
+        targetAttributes: getAttr(event),
+        targetBaseURI: String(
+            target?.baseURI ?? window.location.href
+        ),
+        targetHost: String(window.location.host),
+        targetOuterHTML: String(
+            target?.outerHTML ?? ''
+        ),
+        targetOuterText: String(
+            target?.textContent ?? ''
+        ),
+        targetOrigin: String(window.location.origin),
+        ip: userInfo.ip,
+        region: userInfo.region,
+        country: userInfo.country,
+        countryCode: userInfo.countryCode,
         city: userInfo.city,
         userAgent: userInfo.userAgent
     }, activityCode);
 });
 
-document.addEventListener('click', async function(event) {
-  
-  const activityCode = document.getElementById("activityScript").getAttribute("activity-code");
-  if (!activityCode || !needSendEvent(event)) {
-    return;
-  }
-  const ipInfo = await getIpInfo();
-  const userInfo = await getUserInfo(ipInfo);
-  
-  await sendEvent({ type: 'click', 
-              targetTagName: event.target.tagName,
-              targetText: event.target.text,
-              targetClassName: event.target.className,
-              targetAttributes: await getAttr(event),
-              targetBaseURI: event.target.baseURI,
-              targetHost: event.target.host,
-              targetOuterHTML: event.target.outerHTML,
-              targetOuterText: event.target.outerText,
-              targetOrigin: event.target.origin,
-              ip: userInfo.ip,
-              region: userInfo.region,
-              country: userInfo.country,
-              countryCode: userInfo.country_code,
-              city: userInfo.city,
-              userAgent: userInfo.userAgent}, activityCode);
-});
-
 function getAttr(event) {
-  const attr = [];
-  for (var i = 0; i < event.target.attributes.length; i++) {
-    attr.push([event.target.attributes[i].name, event.target.attributes[i].value]);
-  }
-  return attr;
+    const target = event.target;
+
+    if (!target?.attributes) {
+        return [];
+    }
+
+    return Array.from(target.attributes).map(attr => [
+        String(attr.name),
+        String(attr.value)
+    ]);
 }
 
 function sendEvent(data, activityCode) {
@@ -67,14 +129,34 @@ function sendEvent(data, activityCode) {
     activityCode: activityCode,
     ...data
   };
+    try {
+        const response = await fetch(urlRef, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
 
-  fetch(urlRef, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  }).catch(err => console.error('Failed to send event:', err));
+        if (!response.ok) {
+            const responseText = await response.text();
+
+            console.error('Failed to save activity:', {
+                status: response.status,
+                statusText: response.statusText,
+                response: responseText,
+                payload: payload
+            });
+
+            return false;
+        }
+
+        return true;
+
+    } catch (err) {
+        console.error('Network error while sending activity:', err);
+        return false;
+    }
 }
 
 async function getIpInfo() {
